@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "90-Day Tracker"
+description = "A private, mobile-first personal tracker for the countdown to January 1, daily code/learn/post habits and streaks, project milestones, video marketing results, and weekly consistency. Progress is saved locally on the device."
+version = "1.0.0"
+id = "artifacts/daymark"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22716
+
+[services.development]
+run = "pnpm --filter @workspace/daymark run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/daymark", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/daymark/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22716"
+BASE_PATH = "/"

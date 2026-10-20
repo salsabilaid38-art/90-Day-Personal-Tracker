@@ -1,0 +1,1 @@
+- [Daymark product scope](daymark-product-scope.md) — the tracker is for solo code/learn/post habits, projects, and video marketing.

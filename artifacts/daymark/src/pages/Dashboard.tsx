@@ -1,0 +1,224 @@
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Clock3, Code2, Flame, GraduationCap, Pencil, Plus, Send, Target, Trash2, X, Video } from 'lucide-react';
+
+type HabitId = 'code' | 'learn' | 'post';
+type HabitDay = { completedHabitIds: HabitId[] };
+type Milestone = { id: string; text: string; completed: boolean };
+type Project = { id: string; name: string; milestones: Milestone[] };
+type VideoPost = { id: string; title: string; date: string; views: number; signups: number };
+type Store = { startDate: string; days: Record<string, HabitDay>; projects: Project[]; videos: VideoPost[] };
+
+const HABITS: { id: HabitId; label: string; caption: string; icon: typeof Code2 }[] = [
+  { id: 'code', label: 'Code', caption: 'Write some code', icon: Code2 },
+  { id: 'learn', label: 'Learn', caption: 'Study something', icon: GraduationCap },
+  { id: 'post', label: 'Post', caption: 'Publish a post', icon: Send },
+];
+const STORE_KEY = 'daymark-personal-tracker-v1';
+const todayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const fromKey = (key: string) => { const [y, m, d] = key.split('-').map(Number); return new Date(y, m - 1, d, 12); };
+const shiftKey = (key: string, amount: number) => { const date = fromKey(key); date.setDate(date.getDate() + amount); return todayKey(date); };
+const shortDate = (key: string, options: Intl.DateTimeFormatOptions = { weekday: 'short' }) => fromKey(key).toLocaleDateString(undefined, options);
+const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+const initialStore = (): Store => ({ startDate: todayKey(), days: {}, projects: [], videos: [] });
+const readStore = (): Store => {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return initialStore();
+    const parsed = JSON.parse(raw) as Partial<Store>;
+    return { ...initialStore(), ...parsed, startDate: parsed.startDate || todayKey(), days: parsed.days || {}, projects: parsed.projects || [], videos: parsed.videos || [] };
+  } catch { return initialStore(); }
+};
+
+function Modal({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/65 p-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <section role="dialog" aria-modal="true" aria-labelledby="modal-title" className="surface w-full max-w-md rounded-2xl p-5 shadow-2xl fade-up">
+      <div className="mb-5 flex items-center justify-between"><h2 id="modal-title" className="text-lg font-bold">{title}</h2><button data-testid="button-close-modal" onClick={close} aria-label="Close dialog" className="rounded-lg p-2 text-muted-foreground hover:bg-white/5"><X size={18}/></button></div>
+      {children}
+    </section>
+  </div>;
+}
+
+export default function Dashboard() {
+  const [store, setStore] = useState<Store>(readStore);
+  const [today, setToday] = useState(todayKey());
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [now, setNow] = useState(Date.now());
+  const [projectModal, setProjectModal] = useState<{ id?: string; name: string } | null>(null);
+  const [milestoneModal, setMilestoneModal] = useState<{ projectId: string; id?: string; text: string } | null>(null);
+  const [videoModal, setVideoModal] = useState<VideoPost | null | 'new'>(null);
+
+  useEffect(() => { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }, [store]);
+  useEffect(() => { const timer = window.setInterval(() => { setNow(Date.now()); const key = todayKey(); setToday(key); }, 1000); return () => window.clearInterval(timer); }, []);
+
+  const cycleDay = Math.min(90, Math.max(1, Math.floor((fromKey(today).getTime() - fromKey(store.startDate).getTime()) / 86400000) + 1));
+  const todayDone = store.days[today]?.completedHabitIds || [];
+  const selectedDone = store.days[selectedDate]?.completedHabitIds || [];
+  const streak = useMemo(() => {
+    let count = 0; let cursor = today;
+    if ((store.days[cursor]?.completedHabitIds.length || 0) < 3) cursor = shiftKey(cursor, -1);
+    while ((store.days[cursor]?.completedHabitIds.length || 0) === 3) { count++; cursor = shiftKey(cursor, -1); }
+    return count;
+  }, [store.days, today]);
+  const nextJan = useMemo(() => {
+    const t = new Date(now); let year = t.getFullYear();
+    let jan = new Date(year, 0, 1);
+    if (jan.getTime() <= now) jan = new Date(++year, 0, 1);
+    return Math.max(0, jan.getTime() - now);
+  }, [now]);
+  const countdown = { days: Math.floor(nextJan / 86400000), hours: Math.floor((nextJan % 86400000) / 3600000), minutes: Math.floor((nextJan % 3600000) / 60000), seconds: Math.floor((nextJan % 60000) / 1000) };
+  const monthLabel = fromKey(shiftKey(today, weekOffset * 7)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const weekStart = (() => { const date = fromKey(today); date.setDate(date.getDate() - ((date.getDay() + 6) % 7) + weekOffset * 7); return todayKey(date); })();
+  const weekDays = Array.from({ length: 7 }, (_, i) => shiftKey(weekStart, i));
+  const totalViews = store.videos.reduce((sum, video) => sum + video.views, 0);
+  const totalSignups = store.videos.reduce((sum, video) => sum + video.signups, 0);
+  const isFuture = selectedDate > today;
+
+  const updateDay = (date: string, habit: HabitId) => setStore((prev) => {
+    const done = prev.days[date]?.completedHabitIds || [];
+    const completedHabitIds = done.includes(habit) ? done.filter((id) => id !== habit) : [...done, habit];
+    return { ...prev, days: { ...prev.days, [date]: { completedHabitIds } } };
+  });
+  const saveProject = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); if (!projectModal) return;
+    const name = projectModal.name.trim(); if (!name) return;
+    setStore((prev) => projectModal.id
+      ? { ...prev, projects: prev.projects.map((p) => p.id === projectModal.id ? { ...p, name } : p) }
+      : { ...prev, projects: [...prev.projects, { id: uid(), name, milestones: [] }] });
+    setProjectModal(null);
+  };
+  const saveMilestone = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); if (!milestoneModal) return;
+    const text = milestoneModal.text.trim(); if (!text) return;
+    setStore((prev) => ({ ...prev, projects: prev.projects.map((p) => p.id !== milestoneModal.projectId ? p : {
+      ...p, milestones: milestoneModal.id
+        ? p.milestones.map((m) => m.id === milestoneModal.id ? { ...m, text } : m)
+        : [...p.milestones, { id: uid(), text, completed: false }],
+    }) }));
+    setMilestoneModal(null);
+  };
+  const saveVideo = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); const form = new FormData(e.currentTarget);
+    const video: VideoPost = { id: videoModal && videoModal !== 'new' ? videoModal.id : uid(), title: String(form.get('title') || '').trim(), date: String(form.get('date') || today), views: Math.max(0, Number(form.get('views')) || 0), signups: Math.max(0, Number(form.get('signups')) || 0) };
+    if (!video.title) return;
+    setStore((prev) => ({ ...prev, videos: videoModal && videoModal !== 'new' ? prev.videos.map((v) => v.id === video.id ? video : v) : [video, ...prev.videos] }));
+    setVideoModal(null);
+  };
+
+  return <main className="app-shell min-h-[100dvh] px-4 pb-12 pt-5 sm:px-7 lg:px-10">
+    <div className="mx-auto max-w-6xl">
+      <header className="mb-8 flex items-center justify-between border-b border-white/[.07] pb-5">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-xl bg-[#8ac9a7]/15 text-[#8ac9a7]"><Target size={21}/></div>
+          <div><div className="text-[15px] font-extrabold tracking-tight">daymark<span className="text-[#8ac9a7]">.</span></div><div className="text-[10px] uppercase tracking-[.22em] text-muted-foreground">your own momentum</div></div>
+        </div>
+        <div className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-muted-foreground"><span className="size-1.5 rounded-full bg-[#8ac9a7]"/><span data-testid="text-local-date">{fromKey(today).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span></div>
+      </header>
+
+      <section className="mb-7 grid gap-4 lg:grid-cols-[1.45fr_.85fr]">
+        <div className="surface soft-grid relative overflow-hidden rounded-3xl p-5 sm:p-7">
+          <div className="absolute -right-8 -top-12 size-48 rounded-full border border-[#8ac9a7]/10 sm:size-64"/><div className="absolute -right-1 top-0 size-36 rounded-full border border-[#8ac9a7]/10 sm:size-48"/>
+          <div className="relative z-10">
+            <div className="mb-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-[.17em] text-[#8ac9a7]"><span className="size-1.5 rounded-full bg-[#8ac9a7]"/> The long game, one day at a time</div>
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <div className="text-[5.3rem] font-extrabold leading-[.84] tracking-[-.09em] sm:text-[7rem]" data-testid="text-cycle-day">{cycleDay}<span className="text-3xl font-medium tracking-normal text-muted-foreground sm:text-4xl">/90</span></div>
+              <div className="pb-1 sm:pb-2"><div className="text-sm font-bold">Day of your cycle</div><div className="mt-1 text-xs text-muted-foreground">Small steps are still forward.</div></div>
+            </div>
+            <div className="mt-7 max-w-md">
+              <div className="mb-2 flex justify-between text-[11px] text-muted-foreground"><span>Cycle progress</span><span className="number">{cycleDay} of 90</span></div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-[#8ac9a7] transition-[width] duration-700" style={{ width: `${cycleDay / 90 * 100}%` }}/></div>
+            </div>
+          </div>
+          <div className="relative z-10 mt-7 flex items-center gap-2 border-t border-white/[.08] pt-4 text-xs text-muted-foreground"><span className="grid size-7 place-items-center rounded-lg bg-white/[.05]"><Clock3 size={14}/></span> This cycle began <span className="font-semibold text-foreground">{fromKey(store.startDate).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}</span></div>
+        </div>
+        <div className="surface relative overflow-hidden rounded-3xl p-5 sm:p-6">
+          <div className="flex items-center justify-between"><div><div className="text-xs font-semibold uppercase tracking-[.16em] text-muted-foreground">A little runway</div><h2 className="mt-2 text-lg font-bold">Until January 1</h2></div><div className="grid size-10 place-items-center rounded-xl bg-[#d9aa71]/10 text-[#d9aa71]"><Clock3 size={19}/></div></div>
+          <div className="mt-7 grid grid-cols-4 gap-2">
+            {([['days', countdown.days], ['hrs', countdown.hours], ['min', countdown.minutes], ['sec', countdown.seconds]] as [string, number][]).map(([label, value]) => <div key={label} className="rounded-xl bg-white/[.035] px-2 py-3 text-center"><div className="number text-2xl font-medium tracking-tight sm:text-3xl" data-testid={`value-countdown-${label}`}>{String(value).padStart(2, '0')}</div><div className="mt-1 text-[9px] uppercase tracking-[.18em] text-muted-foreground">{label}</div></div>)}
+          </div>
+          <div className="mt-5 flex items-center gap-2 text-xs text-muted-foreground"><span className="text-[#d9aa71]"><Flame size={15}/></span><span data-testid="text-current-streak"><strong className="text-foreground">{streak} day{streak === 1 ? '' : 's'}</strong> in your current streak</span></div>
+        </div>
+      </section>
+
+      <section className="mb-7">
+        <div className="mb-3 flex items-end justify-between"><div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">{selectedDate === today ? 'Today' : `Habits for ${shortDate(selectedDate, { weekday: 'long', month: 'short', day: 'numeric' })}`}, in three small promises</div><h2 className="mt-1 text-xl font-bold">Show up for yourself.</h2></div><div className="number text-xs text-muted-foreground" data-testid="text-habit-completion">{selectedDone.length}/3 done</div></div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          {HABITS.map(({ id, label, caption, icon: Icon }, i) => {
+            const checked = (store.days[selectedDate]?.completedHabitIds || []).includes(id);
+            return <button key={id} type="button" disabled={isFuture} onClick={() => updateDay(selectedDate, id)} data-testid={`button-habit-${id}`} aria-pressed={checked} className={`surface group flex min-h-[84px] items-center gap-4 rounded-2xl px-4 py-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-[#8ac9a7]/40 disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'border-[#8ac9a7]/45 bg-[#8ac9a7]/[.07]' : ''}`} style={{ animationDelay: `${i * 70}ms` }}>
+              <span className={`grid size-11 shrink-0 place-items-center rounded-xl transition-colors ${checked ? 'bg-[#8ac9a7] text-[#17211c]' : 'bg-white/[.05] text-muted-foreground group-hover:text-[#8ac9a7]'}`}>{checked ? <Check className="check-pop" size={20}/> : <Icon size={19}/>}</span>
+              <span className="min-w-0 flex-1"><span className="block text-sm font-bold">{label}</span><span className="mt-1 block text-xs text-muted-foreground">{selectedDate === today ? caption : shortDate(selectedDate, { month: 'short', day: 'numeric' })}</span></span>
+              <span className={`size-5 rounded-full border transition ${checked ? 'border-[#8ac9a7] bg-[#8ac9a7]' : 'border-white/20'}`}>{checked && <Check size={14} className="text-[#17211c]"/>}</span>
+            </button>;
+          })}
+        </div>
+      </section>
+
+      <section className="mb-7 grid gap-4 lg:grid-cols-[1.1fr_.9fr]">
+        <div className="surface rounded-3xl p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">The week at a glance</div><h2 className="mt-1 text-lg font-bold">{monthLabel}</h2></div>
+            <div className="flex gap-1"><button onClick={() => setWeekOffset((n) => n - 1)} aria-label="Previous week" data-testid="button-previous-week" className="rounded-lg p-2 text-muted-foreground hover:bg-white/[.06] hover:text-foreground"><ChevronLeft size={18}/></button><button onClick={() => setWeekOffset((n) => Math.min(0, n + 1))} disabled={weekOffset >= 0} aria-label="Next week" data-testid="button-next-week" className="rounded-lg p-2 text-muted-foreground hover:bg-white/[.06] hover:text-foreground disabled:opacity-30"><ChevronRight size={18}/></button></div>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {weekDays.map((date) => {
+              const done = store.days[date]?.completedHabitIds.length || 0;
+              const future = date > today; const missed = date < today && done < 3;
+              return <button key={date} type="button" disabled={future} onClick={() => { setSelectedDate(date); }} aria-pressed={selectedDate === date} data-testid={`button-calendar-day-${date}`} className={`flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-xl border px-1 py-2 transition hover:border-[#8ac9a7]/40 disabled:cursor-not-allowed disabled:opacity-40 ${selectedDate === date ? 'border-[#8ac9a7]/60 bg-[#8ac9a7]/10' : 'border-transparent bg-white/[.025]'}`}>
+                <span className="text-[10px] text-muted-foreground">{shortDate(date)}</span>
+                <span className={`number text-sm font-medium ${date === today ? 'text-[#8ac9a7]' : ''}`}>{fromKey(date).getDate()}</span>
+                <span className={`size-1.5 rounded-full ${done === 3 ? 'bg-[#8ac9a7]' : missed ? 'bg-[#d9aa71]/70' : future ? 'bg-transparent' : 'bg-white/15'}`}/>
+              </button>;
+            })}
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-white/[.07] pt-3">
+            <div className="flex items-center gap-3 text-[10px] text-muted-foreground"><span className="inline-flex items-center gap-1.5"><i className="size-1.5 rounded-full bg-[#8ac9a7]"/> All habits</span><span className="inline-flex items-center gap-1.5"><i className="size-1.5 rounded-full bg-[#d9aa71]/70"/> Missed / partial</span></div>
+            <div className="text-[10px] text-muted-foreground">Select a past day to update it</div>
+          </div>
+        </div>
+        <div className="surface rounded-3xl p-5 sm:p-6">
+          <div className="mb-5 flex items-center justify-between"><div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">Keep the work visible</div><h2 className="mt-1 text-lg font-bold">Active projects</h2></div><button onClick={() => setProjectModal({ name: '' })} data-testid="button-add-project" className="inline-flex min-h-10 items-center gap-2 rounded-xl bg-[#8ac9a7] px-3.5 text-xs font-bold text-[#17211c] transition hover:bg-[#a1d8b8]"><Plus size={15}/> New project</button></div>
+          {store.projects.length === 0 ? <div className="flex min-h-36 flex-col items-center justify-center rounded-2xl border border-dashed border-white/10 px-4 text-center"><span className="mb-2 grid size-9 place-items-center rounded-xl bg-white/[.04] text-muted-foreground"><Target size={17}/></span><div className="text-sm font-semibold">Make room for a big thing.</div><p className="mt-1 max-w-xs text-xs leading-relaxed text-muted-foreground">Add a project, then break it into milestones you can actually finish.</p></div> :
+            <div className="space-y-4">{store.projects.map((project) => {
+              const completed = project.milestones.filter((m) => m.completed).length;
+              return <article key={project.id} className="rounded-2xl border border-white/[.07] bg-white/[.018] p-4" data-testid={`card-project-${project.id}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h3 className="truncate text-sm font-bold" data-testid={`text-project-name-${project.id}`}>{project.name}</h3><div className="mt-1 text-[10px] text-muted-foreground" data-testid={`text-project-progress-${project.id}`}>{completed} / {project.milestones.length} milestones complete</div></div><div className="flex shrink-0 gap-1"><button aria-label={`Edit ${project.name}`} onClick={() => setProjectModal({ id: project.id, name: project.name })} data-testid={`button-edit-project-${project.id}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-white/10 hover:text-foreground"><Pencil size={14}/></button><button aria-label={`Delete ${project.name}`} onClick={() => { if (window.confirm(`Delete “${project.name}” and its milestones?`)) setStore((p) => ({ ...p, projects: p.projects.filter((x) => x.id !== project.id) })); }} data-testid={`button-delete-project-${project.id}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-red-400/10 hover:text-red-300"><Trash2 size={14}/></button></div></div>
+                {project.milestones.length > 0 && <div className="mt-3 space-y-1.5">{project.milestones.map((milestone) => <div key={milestone.id} className="group flex items-center gap-2 rounded-lg px-1 py-1">
+                  <button aria-label={`${milestone.completed ? 'Mark incomplete' : 'Complete'} ${milestone.text}`} aria-pressed={milestone.completed} onClick={() => setStore((prev) => ({ ...prev, projects: prev.projects.map((p) => p.id !== project.id ? p : { ...p, milestones: p.milestones.map((m) => m.id === milestone.id ? { ...m, completed: !m.completed } : m) }) }))} data-testid={`button-toggle-milestone-${milestone.id}`} className={`grid size-5 shrink-0 place-items-center rounded-full border ${milestone.completed ? 'border-[#8ac9a7] bg-[#8ac9a7] text-[#17211c]' : 'border-white/20 text-transparent hover:border-[#8ac9a7]'}`}>{milestone.completed && <Check size={12}/>}</button>
+                  <span className={`min-w-0 flex-1 text-xs ${milestone.completed ? 'text-muted-foreground line-through' : ''}`} data-testid={`text-milestone-${milestone.id}`}>{milestone.text}</span>
+                  <button aria-label={`Edit milestone ${milestone.text}`} onClick={() => setMilestoneModal({ projectId: project.id, id: milestone.id, text: milestone.text })} data-testid={`button-edit-milestone-${milestone.id}`} className="rounded p-2 text-muted-foreground transition hover:text-foreground sm:p-1 sm:opacity-0 group-hover:opacity-100 focus:opacity-100"><Pencil size={12}/></button>
+                  <button aria-label={`Delete milestone ${milestone.text}`} onClick={() => setStore((prev) => ({ ...prev, projects: prev.projects.map((p) => p.id === project.id ? { ...p, milestones: p.milestones.filter((m) => m.id !== milestone.id) } : p) }))} data-testid={`button-delete-milestone-${milestone.id}`} className="rounded p-2 text-muted-foreground transition hover:text-red-300 sm:p-1 sm:opacity-0 group-hover:opacity-100 focus:opacity-100"><X size={13}/></button>
+                </div>)}</div>}
+                <button onClick={() => setMilestoneModal({ projectId: project.id, text: '' })} data-testid={`button-add-milestone-${project.id}`} className="mt-3 inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2 text-[11px] font-semibold text-[#8ac9a7] hover:bg-[#8ac9a7]/[.08]"><Plus size={13}/> Add milestone</button>
+              </article>;
+            })}</div>}
+        </div>
+      </section>
+
+      <section className="surface overflow-hidden rounded-3xl">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[.07] px-5 py-5 sm:px-6">
+          <div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">Marketing</div><h2 className="mt-1 text-lg font-bold">Video performance</h2></div>
+          <div className="flex items-center gap-5"><div className="hidden items-center gap-5 sm:flex"><div><div className="number text-lg font-medium" data-testid="value-total-views">{totalViews.toLocaleString()}</div><div className="text-[9px] uppercase tracking-[.14em] text-muted-foreground">Views logged</div></div><div><div className="number text-lg font-medium" data-testid="value-total-signups">{totalSignups.toLocaleString()}</div><div className="text-[9px] uppercase tracking-[.14em] text-muted-foreground">Signups</div></div></div><button onClick={() => setVideoModal('new')} data-testid="button-add-video" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 px-3.5 text-xs font-bold transition hover:border-[#8ac9a7]/40 hover:bg-white/[.04]"><Plus size={15}/> Log a video</button></div>
+        </div>
+        {store.videos.length === 0 ? <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center"><span className="mb-2 grid size-10 place-items-center rounded-xl bg-white/[.04] text-muted-foreground"><Video size={18}/></span><div className="text-sm font-semibold">Your next idea starts here.</div><p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">Keep the title and the numbers. Learn what resonates, one post at a time.</p><button onClick={() => setVideoModal('new')} data-testid="button-empty-add-video" className="mt-3 text-xs font-bold text-[#8ac9a7] hover:underline">Add your first video</button></div> :
+          <div className="divide-y divide-white/[.06]">{store.videos.slice().sort((a,b) => b.date.localeCompare(a.date)).map((video) => <div key={video.id} data-testid={`row-video-${video.id}`} className="flex flex-wrap items-center gap-3 px-5 py-4 transition hover:bg-white/[.02] sm:px-6">
+            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#d9aa71]/10 text-[#d9aa71]"><Video size={16}/></div>
+            <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold" data-testid={`text-video-title-${video.id}`}>{video.title}</div><div className="mt-1 text-[10px] text-muted-foreground">{fromKey(video.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div></div>
+            <div className="flex gap-5"><div><div className="number text-sm" data-testid={`value-video-views-${video.id}`}>{video.views.toLocaleString()}</div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">views</div></div><div><div className="number text-sm" data-testid={`value-video-signups-${video.id}`}>{video.signups.toLocaleString()}</div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">signups</div></div></div>
+            <div className="ml-1 flex gap-1"><button aria-label={`Edit ${video.title}`} onClick={() => setVideoModal(video)} data-testid={`button-edit-video-${video.id}`} className="rounded-lg p-2 text-muted-foreground hover:bg-white/[.06] hover:text-foreground"><Pencil size={14}/></button><button aria-label={`Delete ${video.title}`} onClick={() => { if (window.confirm(`Delete “${video.title}”?`)) setStore((p) => ({ ...p, videos: p.videos.filter((v) => v.id !== video.id) })); }} data-testid={`button-delete-video-${video.id}`} className="rounded-lg p-2 text-muted-foreground hover:bg-red-400/10 hover:text-red-300"><Trash2 size={14}/></button></div>
+          </div>)}</div>}
+        {store.videos.length > 0 && <div className="flex items-center gap-2 border-t border-white/[.07] px-5 py-3 text-[10px] text-muted-foreground sm:px-6"><ArrowUpRight size={13} className="text-[#8ac9a7]"/> Performance notes are yours. No pressure, just patterns.</div>}
+      </section>
+      <footer className="mt-7 flex flex-col items-center justify-between gap-2 text-[10px] text-muted-foreground sm:flex-row"><span>Private by design. Your progress stays on this device.</span><span className="inline-flex items-center gap-1.5"><Circle size={7} className="fill-[#8ac9a7] text-[#8ac9a7]"/> Saved locally</span></footer>
+    </div>
+
+    {projectModal && <Modal title={projectModal.id ? 'Edit project' : 'Start a project'} close={() => setProjectModal(null)}><form onSubmit={saveProject} className="space-y-4"><label className="block text-xs font-semibold text-muted-foreground">Project name<input autoFocus data-testid="input-project-name" value={projectModal.name} onChange={(e) => setProjectModal({ ...projectModal, name: e.target.value })} maxLength={90} placeholder="What are you building?" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setProjectModal(null)} data-testid="button-cancel-project" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-project" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{projectModal.id ? 'Save changes' : 'Create project'}</button></div></form></Modal>}
+    {milestoneModal && <Modal title={milestoneModal.id ? 'Edit milestone' : 'Add a milestone'} close={() => setMilestoneModal(null)}><form onSubmit={saveMilestone} className="space-y-4"><label className="block text-xs font-semibold text-muted-foreground">A clear next step<input autoFocus data-testid="input-milestone-text" value={milestoneModal.text} onChange={(e) => setMilestoneModal({ ...milestoneModal, text: e.target.value })} maxLength={120} placeholder="Ship the first version" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setMilestoneModal(null)} data-testid="button-cancel-milestone" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-milestone" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{milestoneModal.id ? 'Save changes' : 'Add milestone'}</button></div></form></Modal>}
+    {videoModal && <Modal title={videoModal === 'new' ? 'Log a video' : 'Edit video notes'} close={() => setVideoModal(null)}><form onSubmit={saveVideo} className="space-y-4">
+      <label className="block text-xs font-semibold text-muted-foreground">Video title<input autoFocus required name="title" data-testid="input-video-title" defaultValue={videoModal === 'new' ? '' : videoModal.title} maxLength={120} placeholder="What did you share?" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label>
+      <label className="block text-xs font-semibold text-muted-foreground">Post date<input required type="date" name="date" data-testid="input-video-date" defaultValue={videoModal === 'new' ? today : videoModal.date} max={today} className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label>
+      <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-semibold text-muted-foreground">Views<input type="number" min="0" name="views" data-testid="input-video-views" defaultValue={videoModal === 'new' ? '' : videoModal.views} placeholder="0" className="number mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label><label className="block text-xs font-semibold text-muted-foreground">Signups<input type="number" min="0" name="signups" data-testid="input-video-signups" defaultValue={videoModal === 'new' ? '' : videoModal.signups} placeholder="0" className="number mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label></div>
+      <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => setVideoModal(null)} data-testid="button-cancel-video" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-video" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{videoModal === 'new' ? 'Save video' : 'Save changes'}</button></div>
+    </form></Modal>}
+  </main>;
+}
