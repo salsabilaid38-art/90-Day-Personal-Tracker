@@ -1,10 +1,10 @@
 ---
-name: Daymark product scope
-description: The intended audience, daily habits, and persistence boundary for the personal tracker.
+name: Lily Progress product scope
+description: The intended audience, daily habits, university application tracking, and persistence boundary.
 ---
 
-Daymark is a solo 90-day personal tracker centered on the daily habits code, learn, and post, plus project milestones and video views/signups. The first version stores progress locally on the device without accounts or a synced backend.
+Lily Progress is a solo 90-day personal tracker centered on the daily habits code, learn, and post; project milestones; and university applications with deadlines, status, and checkable steps. The app stores progress locally on the device without accounts or a synced backend. Video marketing is no longer part of the product.
 
-**Why:** The user asked for a personal tracker, and local storage keeps the first version private and simple to use.
+**Why:** The user asked to rename the app Lily Progress, remove video publishing, and replace it with university application tracking.
 
-**How to apply:** Keep future changes focused on this individual's habit and creator workflow; add accounts or cross-device sync only if requested.
+**How to apply:** Keep future changes focused on this individual's habits, projects, and university applications; add accounts or cross-device sync only if requested.

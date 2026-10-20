@@ -1,1 +1,1 @@
-- [Daymark product scope](daymark-product-scope.md) — the tracker is for solo code/learn/post habits, projects, and video marketing.
+- [Lily Progress product scope](daymark-product-scope.md) — the personal tracker combines daily habits, projects, and university applications.

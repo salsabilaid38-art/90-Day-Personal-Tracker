@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Circle, Clock3, Code2, Flame, GraduationCap, Pencil, Plus, Send, Target, Trash2, X, Video } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Circle, Clock3, Code2, Flame, GraduationCap, Pencil, Plus, Send, Target, Trash2, X } from 'lucide-react';
+import UniversityApplications from '@/components/university-applications';
+import type { UniversityApplication } from '@/lib/tracker-types';
 
 type HabitId = 'code' | 'learn' | 'post';
 type HabitDay = { completedHabitIds: HabitId[] };
 type Milestone = { id: string; text: string; completed: boolean };
 type Project = { id: string; name: string; milestones: Milestone[] };
-type VideoPost = { id: string; title: string; date: string; views: number; signups: number };
-type Store = { startDate: string; days: Record<string, HabitDay>; projects: Project[]; videos: VideoPost[] };
+type ArchivedVideoLog = { id: string; title: string; date: string; views: number; signups: number };
+type Store = { startDate: string; days: Record<string, HabitDay>; projects: Project[]; applications: UniversityApplication[]; archivedVideoLogs: ArchivedVideoLog[] };
 
 const HABITS: { id: HabitId; label: string; caption: string; icon: typeof Code2 }[] = [
   { id: 'code', label: 'Code', caption: 'Write some code', icon: Code2 },
@@ -19,13 +21,22 @@ const fromKey = (key: string) => { const [y, m, d] = key.split('-').map(Number);
 const shiftKey = (key: string, amount: number) => { const date = fromKey(key); date.setDate(date.getDate() + amount); return todayKey(date); };
 const shortDate = (key: string, options: Intl.DateTimeFormatOptions = { weekday: 'short' }) => fromKey(key).toLocaleDateString(undefined, options);
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-const initialStore = (): Store => ({ startDate: todayKey(), days: {}, projects: [], videos: [] });
+const initialStore = (): Store => ({ startDate: todayKey(), days: {}, projects: [], applications: [], archivedVideoLogs: [] });
 const readStore = (): Store => {
   try {
     const raw = localStorage.getItem(STORE_KEY);
     if (!raw) return initialStore();
-    const parsed = JSON.parse(raw) as Partial<Store>;
-    return { ...initialStore(), ...parsed, startDate: parsed.startDate || todayKey(), days: parsed.days || {}, projects: parsed.projects || [], videos: parsed.videos || [] };
+    const parsed = JSON.parse(raw) as Partial<Store> & { videos?: ArchivedVideoLog[] };
+    const { videos: legacyVideoLogs, ...saved } = parsed;
+    return {
+      ...initialStore(),
+      ...saved,
+      startDate: parsed.startDate || todayKey(),
+      days: parsed.days || {},
+      projects: parsed.projects || [],
+      applications: parsed.applications || [],
+      archivedVideoLogs: parsed.archivedVideoLogs || legacyVideoLogs || [],
+    };
   } catch { return initialStore(); }
 };
 
@@ -46,7 +57,6 @@ export default function Dashboard() {
   const [now, setNow] = useState(Date.now());
   const [projectModal, setProjectModal] = useState<{ id?: string; name: string } | null>(null);
   const [milestoneModal, setMilestoneModal] = useState<{ projectId: string; id?: string; text: string } | null>(null);
-  const [videoModal, setVideoModal] = useState<VideoPost | null | 'new'>(null);
 
   useEffect(() => { localStorage.setItem(STORE_KEY, JSON.stringify(store)); }, [store]);
   useEffect(() => { const timer = window.setInterval(() => { setNow(Date.now()); const key = todayKey(); setToday(key); }, 1000); return () => window.clearInterval(timer); }, []);
@@ -70,8 +80,6 @@ export default function Dashboard() {
   const monthLabel = fromKey(shiftKey(today, weekOffset * 7)).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
   const weekStart = (() => { const date = fromKey(today); date.setDate(date.getDate() - ((date.getDay() + 6) % 7) + weekOffset * 7); return todayKey(date); })();
   const weekDays = Array.from({ length: 7 }, (_, i) => shiftKey(weekStart, i));
-  const totalViews = store.videos.reduce((sum, video) => sum + video.views, 0);
-  const totalSignups = store.videos.reduce((sum, video) => sum + video.signups, 0);
   const isFuture = selectedDate > today;
 
   const updateDay = (date: string, habit: HabitId) => setStore((prev) => {
@@ -97,20 +105,12 @@ export default function Dashboard() {
     }) }));
     setMilestoneModal(null);
   };
-  const saveVideo = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault(); const form = new FormData(e.currentTarget);
-    const video: VideoPost = { id: videoModal && videoModal !== 'new' ? videoModal.id : uid(), title: String(form.get('title') || '').trim(), date: String(form.get('date') || today), views: Math.max(0, Number(form.get('views')) || 0), signups: Math.max(0, Number(form.get('signups')) || 0) };
-    if (!video.title) return;
-    setStore((prev) => ({ ...prev, videos: videoModal && videoModal !== 'new' ? prev.videos.map((v) => v.id === video.id ? video : v) : [video, ...prev.videos] }));
-    setVideoModal(null);
-  };
-
   return <main className="app-shell min-h-[100dvh] px-4 pb-12 pt-5 sm:px-7 lg:px-10">
     <div className="mx-auto max-w-6xl">
       <header className="mb-8 flex items-center justify-between border-b border-white/[.07] pb-5">
         <div className="flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-xl bg-[#8ac9a7]/15 text-[#8ac9a7]"><Target size={21}/></div>
-          <div><div className="text-[15px] font-extrabold tracking-tight">daymark<span className="text-[#8ac9a7]">.</span></div><div className="text-[10px] uppercase tracking-[.22em] text-muted-foreground">your own momentum</div></div>
+          <div><div className="text-[15px] font-extrabold tracking-tight">Lily <span className="text-[#8ac9a7]">Progress</span></div><div className="text-[10px] uppercase tracking-[.22em] text-muted-foreground">your own momentum</div></div>
         </div>
         <div className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs text-muted-foreground"><span className="size-1.5 rounded-full bg-[#8ac9a7]"/><span data-testid="text-local-date">{fromKey(today).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}</span></div>
       </header>
@@ -195,30 +195,20 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="surface overflow-hidden rounded-3xl">
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[.07] px-5 py-5 sm:px-6">
-          <div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">Marketing</div><h2 className="mt-1 text-lg font-bold">Video performance</h2></div>
-          <div className="flex items-center gap-5"><div className="hidden items-center gap-5 sm:flex"><div><div className="number text-lg font-medium" data-testid="value-total-views">{totalViews.toLocaleString()}</div><div className="text-[9px] uppercase tracking-[.14em] text-muted-foreground">Views logged</div></div><div><div className="number text-lg font-medium" data-testid="value-total-signups">{totalSignups.toLocaleString()}</div><div className="text-[9px] uppercase tracking-[.14em] text-muted-foreground">Signups</div></div></div><button onClick={() => setVideoModal('new')} data-testid="button-add-video" className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-white/10 px-3.5 text-xs font-bold transition hover:border-[#8ac9a7]/40 hover:bg-white/[.04]"><Plus size={15}/> Log a video</button></div>
-        </div>
-        {store.videos.length === 0 ? <div className="flex min-h-40 flex-col items-center justify-center px-5 text-center"><span className="mb-2 grid size-10 place-items-center rounded-xl bg-white/[.04] text-muted-foreground"><Video size={18}/></span><div className="text-sm font-semibold">Your next idea starts here.</div><p className="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">Keep the title and the numbers. Learn what resonates, one post at a time.</p><button onClick={() => setVideoModal('new')} data-testid="button-empty-add-video" className="mt-3 text-xs font-bold text-[#8ac9a7] hover:underline">Add your first video</button></div> :
-          <div className="divide-y divide-white/[.06]">{store.videos.slice().sort((a,b) => b.date.localeCompare(a.date)).map((video) => <div key={video.id} data-testid={`row-video-${video.id}`} className="flex flex-wrap items-center gap-3 px-5 py-4 transition hover:bg-white/[.02] sm:px-6">
-            <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-[#d9aa71]/10 text-[#d9aa71]"><Video size={16}/></div>
-            <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold" data-testid={`text-video-title-${video.id}`}>{video.title}</div><div className="mt-1 text-[10px] text-muted-foreground">{fromKey(video.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</div></div>
-            <div className="flex gap-5"><div><div className="number text-sm" data-testid={`value-video-views-${video.id}`}>{video.views.toLocaleString()}</div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">views</div></div><div><div className="number text-sm" data-testid={`value-video-signups-${video.id}`}>{video.signups.toLocaleString()}</div><div className="text-[9px] uppercase tracking-wider text-muted-foreground">signups</div></div></div>
-            <div className="ml-1 flex gap-1"><button aria-label={`Edit ${video.title}`} onClick={() => setVideoModal(video)} data-testid={`button-edit-video-${video.id}`} className="rounded-lg p-2 text-muted-foreground hover:bg-white/[.06] hover:text-foreground"><Pencil size={14}/></button><button aria-label={`Delete ${video.title}`} onClick={() => { if (window.confirm(`Delete “${video.title}”?`)) setStore((p) => ({ ...p, videos: p.videos.filter((v) => v.id !== video.id) })); }} data-testid={`button-delete-video-${video.id}`} className="rounded-lg p-2 text-muted-foreground hover:bg-red-400/10 hover:text-red-300"><Trash2 size={14}/></button></div>
-          </div>)}</div>}
-        {store.videos.length > 0 && <div className="flex items-center gap-2 border-t border-white/[.07] px-5 py-3 text-[10px] text-muted-foreground sm:px-6"><ArrowUpRight size={13} className="text-[#8ac9a7]"/> Performance notes are yours. No pressure, just patterns.</div>}
-      </section>
+      <div className="mb-7">
+        <UniversityApplications
+          applications={store.applications}
+          onChange={(update) => setStore((prev) => ({
+            ...prev,
+            applications: update(prev.applications),
+          }))}
+        />
+      </div>
+
       <footer className="mt-7 flex flex-col items-center justify-between gap-2 text-[10px] text-muted-foreground sm:flex-row"><span>Private by design. Your progress stays on this device.</span><span className="inline-flex items-center gap-1.5"><Circle size={7} className="fill-[#8ac9a7] text-[#8ac9a7]"/> Saved locally</span></footer>
     </div>
 
     {projectModal && <Modal title={projectModal.id ? 'Edit project' : 'Start a project'} close={() => setProjectModal(null)}><form onSubmit={saveProject} className="space-y-4"><label className="block text-xs font-semibold text-muted-foreground">Project name<input autoFocus data-testid="input-project-name" value={projectModal.name} onChange={(e) => setProjectModal({ ...projectModal, name: e.target.value })} maxLength={90} placeholder="What are you building?" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setProjectModal(null)} data-testid="button-cancel-project" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-project" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{projectModal.id ? 'Save changes' : 'Create project'}</button></div></form></Modal>}
     {milestoneModal && <Modal title={milestoneModal.id ? 'Edit milestone' : 'Add a milestone'} close={() => setMilestoneModal(null)}><form onSubmit={saveMilestone} className="space-y-4"><label className="block text-xs font-semibold text-muted-foreground">A clear next step<input autoFocus data-testid="input-milestone-text" value={milestoneModal.text} onChange={(e) => setMilestoneModal({ ...milestoneModal, text: e.target.value })} maxLength={120} placeholder="Ship the first version" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label><div className="flex justify-end gap-2"><button type="button" onClick={() => setMilestoneModal(null)} data-testid="button-cancel-milestone" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-milestone" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{milestoneModal.id ? 'Save changes' : 'Add milestone'}</button></div></form></Modal>}
-    {videoModal && <Modal title={videoModal === 'new' ? 'Log a video' : 'Edit video notes'} close={() => setVideoModal(null)}><form onSubmit={saveVideo} className="space-y-4">
-      <label className="block text-xs font-semibold text-muted-foreground">Video title<input autoFocus required name="title" data-testid="input-video-title" defaultValue={videoModal === 'new' ? '' : videoModal.title} maxLength={120} placeholder="What did you share?" className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground placeholder:text-muted-foreground/60"/></label>
-      <label className="block text-xs font-semibold text-muted-foreground">Post date<input required type="date" name="date" data-testid="input-video-date" defaultValue={videoModal === 'new' ? today : videoModal.date} max={today} className="mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label>
-      <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-semibold text-muted-foreground">Views<input type="number" min="0" name="views" data-testid="input-video-views" defaultValue={videoModal === 'new' ? '' : videoModal.views} placeholder="0" className="number mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label><label className="block text-xs font-semibold text-muted-foreground">Signups<input type="number" min="0" name="signups" data-testid="input-video-signups" defaultValue={videoModal === 'new' ? '' : videoModal.signups} placeholder="0" className="number mt-2 min-h-12 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-foreground"/></label></div>
-      <div className="flex justify-end gap-2 pt-1"><button type="button" onClick={() => setVideoModal(null)} data-testid="button-cancel-video" className="min-h-10 rounded-xl px-4 text-xs font-semibold text-muted-foreground hover:bg-white/[.05]">Cancel</button><button type="submit" data-testid="button-save-video" className="min-h-10 rounded-xl bg-[#8ac9a7] px-4 text-xs font-bold text-[#17211c]">{videoModal === 'new' ? 'Save video' : 'Save changes'}</button></div>
-    </form></Modal>}
   </main>;
 }
