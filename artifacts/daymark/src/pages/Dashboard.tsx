@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { Check, ChevronLeft, ChevronRight, Circle, Clock3, Code2, Flame, GraduationCap, Pencil, Plus, Send, Target, Trash2, X } from 'lucide-react';
+import { BookOpen, Check, ChevronLeft, ChevronRight, Circle, Clock3, Code2, Flame, GraduationCap, Landmark, Pencil, Plus, Send, Target, Trash2, X } from 'lucide-react';
 import UniversityApplications from '@/components/university-applications';
 import type { UniversityApplication } from '@/lib/tracker-types';
 
-type HabitId = 'code' | 'learn' | 'post';
-type HabitDay = { completedHabitIds: HabitId[] };
+type HabitId = 'code' | 'learn' | 'university-progress' | 'substack' | 'x-posts';
+type HabitDay = { completedHabitIds: Array<HabitId | 'post'> };
 type Milestone = { id: string; text: string; completed: boolean };
 type Project = { id: string; name: string; milestones: Milestone[] };
 type ArchivedVideoLog = { id: string; title: string; date: string; views: number; signups: number };
@@ -13,7 +13,9 @@ type Store = { startDate: string; days: Record<string, HabitDay>; projects: Proj
 const HABITS: { id: HabitId; label: string; caption: string; icon: typeof Code2 }[] = [
   { id: 'code', label: 'Code', caption: 'Write some code', icon: Code2 },
   { id: 'learn', label: 'Learn', caption: 'Study something', icon: GraduationCap },
-  { id: 'post', label: 'Post', caption: 'Publish a post', icon: Send },
+  { id: 'university-progress', label: 'University Progress', caption: 'Move an application forward', icon: Landmark },
+  { id: 'substack', label: 'Substack', caption: 'Write or publish on Substack', icon: BookOpen },
+  { id: 'x-posts', label: 'X Posts', caption: 'Share something on X', icon: Send },
 ];
 const STORE_KEY = 'daymark-personal-tracker-v1';
 const todayKey = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -62,12 +64,15 @@ export default function Dashboard() {
   useEffect(() => { const timer = window.setInterval(() => { setNow(Date.now()); const key = todayKey(); setToday(key); }, 1000); return () => window.clearInterval(timer); }, []);
 
   const cycleDay = Math.min(90, Math.max(1, Math.floor((fromKey(today).getTime() - fromKey(store.startDate).getTime()) / 86400000) + 1));
-  const todayDone = store.days[today]?.completedHabitIds || [];
-  const selectedDone = store.days[selectedDate]?.completedHabitIds || [];
+  const countCompletedHabits = (date: string) => {
+    const completed = store.days[date]?.completedHabitIds || [];
+    return HABITS.filter(({ id }) => completed.includes(id)).length;
+  };
+  const selectedDone = countCompletedHabits(selectedDate);
   const streak = useMemo(() => {
     let count = 0; let cursor = today;
-    if ((store.days[cursor]?.completedHabitIds.length || 0) < 3) cursor = shiftKey(cursor, -1);
-    while ((store.days[cursor]?.completedHabitIds.length || 0) === 3) { count++; cursor = shiftKey(cursor, -1); }
+    if (countCompletedHabits(cursor) < HABITS.length) cursor = shiftKey(cursor, -1);
+    while (countCompletedHabits(cursor) === HABITS.length) { count++; cursor = shiftKey(cursor, -1); }
     return count;
   }, [store.days, today]);
   const nextJan = useMemo(() => {
@@ -141,8 +146,8 @@ export default function Dashboard() {
       </section>
 
       <section className="mb-7">
-        <div className="mb-3 flex items-end justify-between"><div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">{selectedDate === today ? 'Today' : `Habits for ${shortDate(selectedDate, { weekday: 'long', month: 'short', day: 'numeric' })}`}, in three small promises</div><h2 className="mt-1 text-xl font-bold">Show up for yourself.</h2></div><div className="number text-xs text-muted-foreground" data-testid="text-habit-completion">{selectedDone.length}/3 done</div></div>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="mb-3 flex items-end justify-between"><div><div className="text-[11px] font-bold uppercase tracking-[.18em] text-muted-foreground">{selectedDate === today ? 'Today' : `Habits for ${shortDate(selectedDate, { weekday: 'long', month: 'short', day: 'numeric' })}`}, in {HABITS.length} small promises</div><h2 className="mt-1 text-xl font-bold">Show up for yourself.</h2></div><div className="number text-xs text-muted-foreground" data-testid="text-habit-completion">{selectedDone}/{HABITS.length} done</div></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
           {HABITS.map(({ id, label, caption, icon: Icon }, i) => {
             const checked = (store.days[selectedDate]?.completedHabitIds || []).includes(id);
             return <button key={id} type="button" disabled={isFuture} onClick={() => updateDay(selectedDate, id)} data-testid={`button-habit-${id}`} aria-pressed={checked} className={`surface group flex min-h-[84px] items-center gap-4 rounded-2xl px-4 py-4 text-left transition duration-200 hover:-translate-y-0.5 hover:border-[#8ac9a7]/40 disabled:cursor-not-allowed disabled:opacity-50 ${checked ? 'border-[#8ac9a7]/45 bg-[#8ac9a7]/[.07]' : ''}`} style={{ animationDelay: `${i * 70}ms` }}>
@@ -162,12 +167,12 @@ export default function Dashboard() {
           </div>
           <div className="grid grid-cols-7 gap-1.5">
             {weekDays.map((date) => {
-              const done = store.days[date]?.completedHabitIds.length || 0;
-              const future = date > today; const missed = date < today && done < 3;
+              const done = countCompletedHabits(date);
+              const future = date > today; const missed = date < today && done < HABITS.length;
               return <button key={date} type="button" disabled={future} onClick={() => { setSelectedDate(date); }} aria-pressed={selectedDate === date} data-testid={`button-calendar-day-${date}`} className={`flex min-h-[72px] flex-col items-center justify-center gap-2 rounded-xl border px-1 py-2 transition hover:border-[#8ac9a7]/40 disabled:cursor-not-allowed disabled:opacity-40 ${selectedDate === date ? 'border-[#8ac9a7]/60 bg-[#8ac9a7]/10' : 'border-transparent bg-white/[.025]'}`}>
                 <span className="text-[10px] text-muted-foreground">{shortDate(date)}</span>
                 <span className={`number text-sm font-medium ${date === today ? 'text-[#8ac9a7]' : ''}`}>{fromKey(date).getDate()}</span>
-                <span className={`size-1.5 rounded-full ${done === 3 ? 'bg-[#8ac9a7]' : missed ? 'bg-[#d9aa71]/70' : future ? 'bg-transparent' : 'bg-white/15'}`}/>
+                <span className={`size-1.5 rounded-full ${done === HABITS.length ? 'bg-[#8ac9a7]' : missed ? 'bg-[#d9aa71]/70' : future ? 'bg-transparent' : 'bg-white/15'}`}/>
               </button>;
             })}
           </div>
